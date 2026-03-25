@@ -9,6 +9,8 @@ Original file is located at
 
 import streamlit as st
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
+from datetime import datetime
 import numpy as np
 import re
 import torch
@@ -262,11 +264,11 @@ if st.button("Search Arguments", type="primary"):
         with st.spinner("Searching and Re-ranking with InLegalBERT..."):
             results = search_system(user_query, top_k=5)
 
-            if results:
+           if results:
                 st.success(f"Found {len(results)} highly relevant arguments.")
                 if results[0]['matched_synonyms']:
                     st.info(f"**Synonyms matched:** {', '.join(results[0]['matched_synonyms'])}")
-
+                
                 for i, r in enumerate(results):
                     with st.expander(f"#{i+1} | {r['case_name']} ({r['outcome']}) - Score: {r['score']}", expanded=(i==0)):
                         st.markdown(f"**Citation:** {r['citation']} | **Forum:** {r['forum']} | **Party:** {r['party']}")
@@ -275,7 +277,33 @@ if st.button("Search Arguments", type="primary"):
                         st.markdown(f"**Court Reasoning (Para {r['court_para']}):**\n> {r['court_reasoning']}")
                         if r['rule_of_law'] != 'nan': st.markdown(f"**Principle:** {r['rule_of_law']}")
                         if r['link'] != 'nan': st.markdown(f"[Read Full Source]({r['link']})")
-            else:
-                st.warning("No relevant arguments found. Try rephrasing.")
-    else:
-        st.warning("Please enter a query first.")
+
+                # --- NEW CODE: GOOGLE SHEETS FEEDBACK FORM ---
+                st.divider()
+                st.markdown("### 📝 Save Search & Review")
+                
+                # Establish the connection to Google Sheets
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                
+                with st.form("feedback_form", clear_on_submit=True):
+                    st.markdown("Help us improve! What did you think of these results?")
+                    user_review = st.text_area("Optional Review (e.g., 'Result #2 was exactly what I needed' or 'Missed the point')")
+                    
+                    if st.form_submit_button("Save to Database"):
+                        # Format the data we want to save
+                        top_cases = " | ".join([r['case_name'] for r in results])
+                        new_row = pd.DataFrame([{
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "Query": user_query,
+                            "Top Cases": top_cases,
+                            "User Review": user_review
+                        }])
+                        
+                        try:
+                            # Read existing data, append the new row, and update the sheet
+                            existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3])
+                            updated_data = pd.concat([existing_data, new_row], ignore_index=True)
+                            conn.update(worksheet="Sheet1", data=updated_data)
+                            st.success("✅ Search and feedback saved successfully!")
+                        except Exception as e:
+                            st.error(f"Failed to save to Google Sheets. Error: {e}")
