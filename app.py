@@ -261,10 +261,34 @@ user_query = st.text_area("Type your query in plain language here...", height=15
 
 if st.button("Search Arguments", type="primary"):
     if user_query.strip():
-        with st.spinner("Searching and Re-ranking with InLegalBERT..."):
+        with st.spinner("Searching, Re-ranking, and Auto-saving to Database..."):
             results = search_system(user_query, top_k=5)
             
             if results:
+                # --- AUTO-SAVE TO GOOGLE SHEETS ---
+                try:
+                    # Establish connection
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    
+                    # Format the data
+                    top_cases = " | ".join([r['case_name'] for r in results])
+                    new_row = pd.DataFrame([{
+                        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Query": user_query,
+                        "Top Cases": top_cases,
+                        "User Review": "Auto-saved on search" # Replaces manual review
+                    }])
+                    
+                    # Read existing, append, and update
+                    existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3])
+                    updated_data = pd.concat([existing_data, new_row], ignore_index=True)
+                    conn.update(worksheet="Sheet1", data=updated_data)
+                    
+                except Exception as e:
+                    # If saving fails, we just print a warning but don't break the app
+                    st.warning(f"Results loaded, but background save to database failed: {e}")
+                
+                # --- DISPLAY RESULTS ---
                 st.success(f"Found {len(results)} highly relevant arguments.")
                 if results[0]['matched_synonyms']:
                     st.info(f"**Synonyms matched:** {', '.join(results[0]['matched_synonyms'])}")
@@ -278,35 +302,6 @@ if st.button("Search Arguments", type="primary"):
                         if r['rule_of_law'] != 'nan': st.markdown(f"**Principle:** {r['rule_of_law']}")
                         if r['link'] != 'nan': st.markdown(f"[Read Full Source]({r['link']})")
 
-                # --- NEW CODE: GOOGLE SHEETS FEEDBACK FORM ---
-                st.divider()
-                st.markdown("### 📝 Save Search & Review")
-                
-                # Establish the connection to Google Sheets
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                
-                with st.form("feedback_form", clear_on_submit=True):
-                    st.markdown("Help us improve! What did you think of these results?")
-                    user_review = st.text_area("Optional Review (e.g., 'Result #2 was exactly what I needed' or 'Missed the point')")
-                    
-                    if st.form_submit_button("Save to Database"):
-                        # Format the data we want to save
-                        top_cases = " | ".join([r['case_name'] for r in results])
-                        new_row = pd.DataFrame([{
-                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "Query": user_query,
-                            "Top Cases": top_cases,
-                            "User Review": user_review
-                        }])
-                        
-                        try:
-                            # Read existing data, append the new row, and update the sheet
-                            existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3])
-                            updated_data = pd.concat([existing_data, new_row], ignore_index=True)
-                            conn.update(worksheet="Sheet1", data=updated_data)
-                            st.success("✅ Search and feedback saved successfully!")
-                        except Exception as e:
-                            st.error(f"Failed to save to Google Sheets. Error: {e}")
             else:
                 st.warning("No relevant arguments found. Try rephrasing.")
     else:
