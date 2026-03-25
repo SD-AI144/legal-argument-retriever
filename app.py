@@ -263,8 +263,8 @@ if st.button("Search Arguments", type="primary"):
     if user_query.strip():
         with st.spinner("Searching and Re-ranking with InLegalBERT..."):
             results = search_system(user_query, top_k=5)
-
-           if results:
+            
+            if results:
                 st.success(f"Found {len(results)} highly relevant arguments.")
                 if results[0]['matched_synonyms']:
                     st.info(f"**Synonyms matched:** {', '.join(results[0]['matched_synonyms'])}")
@@ -307,3 +307,7 @@ if st.button("Search Arguments", type="primary"):
                             st.success("✅ Search and feedback saved successfully!")
                         except Exception as e:
                             st.error(f"Failed to save to Google Sheets. Error: {e}")
+            else:
+                st.warning("No relevant arguments found. Try rephrasing.")
+    else:
+        st.warning("Please enter a query first.")
