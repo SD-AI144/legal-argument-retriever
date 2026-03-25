@@ -265,27 +265,36 @@ if st.button("Search Arguments", type="primary"):
             results = search_system(user_query, top_k=5)
             
             if results:
-                # --- AUTO-SAVE TO GOOGLE SHEETS ---
+               # --- AUTO-SAVE TO GOOGLE SHEETS ---
                 try:
                     # Establish connection
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # Format the data
+                    # Format the data (Ensure your Google Sheet headers match these exactly!)
                     top_cases = " | ".join([r['case_name'] for r in results])
                     new_row = pd.DataFrame([{
                         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "Query": user_query,
                         "Top Cases": top_cases,
-                        "User Review": "Auto-saved on search" # Replaces manual review
+                        "User Review": "Auto-saved on search" 
                     }])
                     
-                    # Read existing, append, and update
-                    existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3])
-                    updated_data = pd.concat([existing_data, new_row], ignore_index=True)
+                    # Read existing data (removed usecols to prevent errors on empty sheets)
+                    # IMPORTANT: Change "Sheet1" if your tab has a different name!
+                    existing_data = conn.read(worksheet="Sheet1") 
+                    
+                    # If the sheet is completely empty, existing_data might be completely blank.
+                    # This ensures we only concat if existing_data actually has columns.
+                    if not existing_data.empty and len(existing_data.columns) > 0:
+                        updated_data = pd.concat([existing_data, new_row], ignore_index=True)
+                    else:
+                        updated_data = new_row
+                        
+                    # Update the sheet
                     conn.update(worksheet="Sheet1", data=updated_data)
                     
                 except Exception as e:
-                    # If saving fails, we just print a warning but don't break the app
+                    # Print the exact error to the app for easier debugging
                     st.warning(f"Results loaded, but background save to database failed: {e}")
                 
                 # --- DISPLAY RESULTS ---
