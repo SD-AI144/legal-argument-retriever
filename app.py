@@ -31,9 +31,6 @@ st.markdown(
     "<h3 style='font-size: 20px; text-transform: uppercase; color: gray;'>A Pilot Study Demonstrated on Section 115 of the Code of Civil Procedure, 1908</h3>", 
     unsafe_allow_html=True
 )
-# 1. Paper Title & Subtitle
-st.markdown("## ⚖️ Beyond case-level retrieval: proposing an argument-level schema for verbatim argument retrieval from indian judicial decisions")
-st.markdown("#### A Pilot Study Demonstrated on Section 115 of the Code of Civil Procedure, 1908")
 
 # 2. Author Credit & 3. What to Expect
 st.info("""
