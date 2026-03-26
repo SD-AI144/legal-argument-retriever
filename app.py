@@ -274,59 +274,94 @@ def search_system(query, top_k=5, candidate_pool=20):
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
+# 1. Use session state to remember results so the feedback box works
+if 'search_results' not in st.session_state:
+    st.session_state.search_results = None
+if 'last_query' not in st.session_state:
+    st.session_state.last_query = ""
+
 if st.button("Search Arguments", type="primary"):
     if user_query.strip():
-        with st.spinner("Searching, Re-ranking, and Auto-saving to Database..."):
+        with st.spinner("Searching and Re-ranking..."):
             results = search_system(user_query, top_k=5)
             
+            # Save results and query to session state
+            st.session_state.search_results = results
+            st.session_state.last_query = user_query
+            
             if results:
-               # --- AUTO-SAVE TO GOOGLE SHEETS ---
+                # --- AUTO-SAVE SEARCH HISTORY TO GOOGLE SHEETS ---
                 try:
-                    # Establish connection
                     conn = st.connection("gsheets", type=GSheetsConnection)
-                    
-                    # Format the data (Ensure your Google Sheet headers match these exactly!)
                     top_cases = " | ".join([r['case_name'] for r in results])
+                    
                     new_row = pd.DataFrame([{
                         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Type": "Search Log",
                         "Query": user_query,
-                        "Top Cases": top_cases,
-                        "User Review": "Auto-saved on search" 
+                        "Top Cases Returned": top_cases,
+                        "User Feedback": "N/A" 
                     }])
                     
-                    # Read existing data (removed usecols to prevent errors on empty sheets)
-                    # IMPORTANT: Change "Sheet1" if your tab has a different name!
                     existing_data = conn.read(worksheet="Sheet1") 
-                    
-                    # If the sheet is completely empty, existing_data might be completely blank.
-                    # This ensures we only concat if existing_data actually has columns.
                     if not existing_data.empty and len(existing_data.columns) > 0:
                         updated_data = pd.concat([existing_data, new_row], ignore_index=True)
                     else:
                         updated_data = new_row
                         
-                    # Update the sheet
                     conn.update(worksheet="Sheet1", data=updated_data)
-                    
                 except Exception as e:
-                    # Print the exact error to the app for easier debugging
-                    st.warning(f"Results loaded, but background save to database failed: {e}")
-                
-                # --- DISPLAY RESULTS ---
-                st.success(f"Found {len(results)} highly relevant arguments.")
-                if results[0]['matched_synonyms']:
-                    st.info(f"**Synonyms matched:** {', '.join(results[0]['matched_synonyms'])}")
-                
-                for i, r in enumerate(results):
-                    with st.expander(f"#{i+1} | {r['case_name']} ({r['outcome']}) - Score: {r['score']}", expanded=(i==0)):
-                        st.markdown(f"**Citation:** {r['citation']} | **Forum:** {r['forum']} | **Party:** {r['party']}")
-                        if r['issue'] != 'nan': st.markdown(f"**Issue:** {r['issue']}")
-                        st.markdown(f"**Argument (Para {r['arg_para']}):**\n> {r['argument']}")
-                        st.markdown(f"**Court Reasoning (Para {r['court_para']}):**\n> {r['court_reasoning']}")
-                        if r['rule_of_law'] != 'nan': st.markdown(f"**Principle:** {r['rule_of_law']}")
-                        if r['link'] != 'nan': st.markdown(f"[Read Full Source]({r['link']})")
-
+                    st.warning(f"Background save to database failed: {e}")
             else:
                 st.warning("No relevant arguments found. Try rephrasing.")
     else:
         st.warning("Please enter a query first.")
+
+# 2. DISPLAY RESULTS (if they exist in session state)
+if st.session_state.search_results:
+    results = st.session_state.search_results
+    st.success(f"Found {len(results)} highly relevant arguments.")
+    
+    if results[0]['matched_synonyms']:
+        st.info(f"**Synonyms matched:** {', '.join(results[0]['matched_synonyms'])}")
+    
+    for i, r in enumerate(results):
+        with st.expander(f"#{i+1} | {r['case_name']} ({r['outcome']}) - Score: {r['score']}", expanded=(i==0)):
+            st.markdown(f"**Citation:** {r['citation']} | **Forum:** {r['forum']} | **Party:** {r['party']}")
+            if r['issue'] != 'nan': st.markdown(f"**Issue:** {r['issue']}")
+            st.markdown(f"**Argument (Para {r['arg_para']}):**\n> {r['argument']}")
+            st.markdown(f"**Court Reasoning (Para {r['court_para']}):**\n> {r['court_reasoning']}")
+            if r['rule_of_law'] != 'nan': st.markdown(f"**Principle:** {r['rule_of_law']}")
+            if r['link'] != 'nan': st.markdown(f"[Read Full Source]({r['link']})")
+
+    st.divider()
+    
+    # 3. OPTIONAL FEEDBACK BOX
+    st.markdown("#### 📝 Optional: Help improve this research!")
+    with st.form("feedback_form", clear_on_submit=True):
+        feedback_text = st.text_area("Did these results help? Were any arguments irrelevant? Let me know!")
+        submit_feedback = st.form_submit_button("Submit Feedback")
+        
+        if submit_feedback and feedback_text.strip():
+            try:
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
+                
+                feedback_row = pd.DataFrame([{
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Type": "User Feedback",
+                    "Query": st.session_state.last_query,
+                    "Top Cases Returned": top_cases,
+                    "User Feedback": feedback_text 
+                }])
+                
+                existing_data = conn.read(worksheet="Sheet1") 
+                if not existing_data.empty and len(existing_data.columns) > 0:
+                    updated_data = pd.concat([existing_data, feedback_row], ignore_index=True)
+                else:
+                    updated_data = feedback_row
+                    
+                conn.update(worksheet="Sheet1", data=updated_data)
+                st.success("Thank you! Your feedback has been recorded for the research study.")
+            except Exception as e:
+                st.error(f"Failed to save feedback: {e}")
