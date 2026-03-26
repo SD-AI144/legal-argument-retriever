@@ -295,21 +295,26 @@ if st.button("Search Arguments", type="primary"):
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     top_cases = " | ".join([r['case_name'] for r in results])
                     
+                    # MATCHING YOUR EXACT 4 COLUMNS
                     new_row = pd.DataFrame([{
                         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "Type": "Search Log",
                         "Query": user_query,
-                        "Top Cases Returned": top_cases,
-                        "User Feedback": "N/A" 
+                        "Top Cases": top_cases,
+                        "User Review": "Auto-saved search log" 
                     }])
                     
-                    existing_data = conn.read(worksheet="Sheet1") 
+                    # UPDATED WORKSHEET NAME
+                    existing_data = conn.read(worksheet="Legal_App_Logs") 
                     if not existing_data.empty and len(existing_data.columns) > 0:
                         updated_data = pd.concat([existing_data, new_row], ignore_index=True)
                     else:
                         updated_data = new_row
+                    
+                    # THE FIX: Clean blank cells to prevent 400 Bad Request
+                    updated_data = updated_data.fillna("")
+                    updated_data = updated_data.astype(str)
                         
-                    conn.update(worksheet="Sheet1", data=updated_data)
+                    conn.update(worksheet="Legal_App_Logs", data=updated_data)
                 except Exception as e:
                     st.warning(f"Background save to database failed: {e}")
             else:
@@ -339,7 +344,7 @@ if st.session_state.search_results:
     # 3. OPTIONAL FEEDBACK BOX
     st.markdown("#### 📝 Optional: Help improve this research!")
     with st.form("feedback_form", clear_on_submit=True):
-        feedback_text = st.text_area("Did these results help? Were any arguments irrelevant? Let me know!")
+        feedback_text = st.text_area("Did these results help? Were any arguments irrelevant?")
         submit_feedback = st.form_submit_button("Submit Feedback")
         
         if submit_feedback and feedback_text.strip():
@@ -347,21 +352,26 @@ if st.session_state.search_results:
                 conn = st.connection("gsheets", type=GSheetsConnection)
                 top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
                 
+                # MATCHING YOUR EXACT 4 COLUMNS
                 feedback_row = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Type": "User Feedback",
                     "Query": st.session_state.last_query,
-                    "Top Cases Returned": top_cases,
-                    "User Feedback": feedback_text 
+                    "Top Cases": top_cases,
+                    "User Review": feedback_text 
                 }])
                 
-                existing_data = conn.read(worksheet="Sheet1") 
+                # UPDATED WORKSHEET NAME
+                existing_data = conn.read(worksheet="Legal_App_Logs") 
                 if not existing_data.empty and len(existing_data.columns) > 0:
                     updated_data = pd.concat([existing_data, feedback_row], ignore_index=True)
                 else:
                     updated_data = feedback_row
+                
+                # THE FIX: Clean blank cells to prevent 400 Bad Request
+                updated_data = updated_data.fillna("")
+                updated_data = updated_data.astype(str)
                     
-                conn.update(worksheet="Sheet1", data=updated_data)
-                st.success("Thank you! Your feedback has been recorded for the research study.")
+                conn.update(worksheet="Legal_App_Logs", data=updated_data)
+                st.success("Thank you! Your feedback has been recorded.")
             except Exception as e:
                 st.error(f"Failed to save feedback: {e}")
