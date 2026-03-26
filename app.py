@@ -291,11 +291,10 @@ if st.button("Search Arguments", type="primary"):
             
             if results:
                 # --- AUTO-SAVE SEARCH HISTORY TO GOOGLE SHEETS ---
-                try:
+              try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     top_cases = " | ".join([r['case_name'] for r in results])
                     
-                    # MATCHING YOUR EXACT 4 COLUMNS
                     new_row = pd.DataFrame([{
                         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "Query": user_query,
@@ -303,14 +302,17 @@ if st.button("Search Arguments", type="primary"):
                         "User Review": "Auto-saved search log" 
                     }])
                     
-                    # UPDATED WORKSHEET NAME
-                    existing_data = conn.read(worksheet="Legal_App_Logs") 
-                    if not existing_data.empty and len(existing_data.columns) > 0:
+                    # FIX 1: Read ONLY the first 4 columns (indexes 0, 1, 2, 3)
+                    existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
+                    
+                    # FIX 2: Drop the hundreds of blank rows Google Sheets leaves at the bottom
+                    existing_data = existing_data.dropna(how="all")
+                    
+                    if not existing_data.empty:
                         updated_data = pd.concat([existing_data, new_row], ignore_index=True)
                     else:
                         updated_data = new_row
                     
-                    # THE FIX: Clean blank cells to prevent 400 Bad Request
                     updated_data = updated_data.fillna("")
                     updated_data = updated_data.astype(str)
                         
@@ -348,11 +350,10 @@ if st.session_state.search_results:
         submit_feedback = st.form_submit_button("Submit Feedback")
         
         if submit_feedback and feedback_text.strip():
-            try:
+           try:
                 conn = st.connection("gsheets", type=GSheetsConnection)
                 top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
                 
-                # MATCHING YOUR EXACT 4 COLUMNS
                 feedback_row = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Query": st.session_state.last_query,
@@ -360,14 +361,17 @@ if st.session_state.search_results:
                     "User Review": feedback_text 
                 }])
                 
-                # UPDATED WORKSHEET NAME
-                existing_data = conn.read(worksheet="Legal_App_Logs") 
-                if not existing_data.empty and len(existing_data.columns) > 0:
+                # FIX 1: Read ONLY the first 4 columns
+                existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
+                
+                # FIX 2: Drop all the blank rows
+                existing_data = existing_data.dropna(how="all")
+                
+                if not existing_data.empty:
                     updated_data = pd.concat([existing_data, feedback_row], ignore_index=True)
                 else:
                     updated_data = feedback_row
                 
-                # THE FIX: Clean blank cells to prevent 400 Bad Request
                 updated_data = updated_data.fillna("")
                 updated_data = updated_data.astype(str)
                     
