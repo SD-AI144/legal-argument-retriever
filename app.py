@@ -275,28 +275,30 @@ def append_to_sheet(row_data):
     """Safely appends a single row dictionary to the Google Sheet."""
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # ttl=0 is CRITICAL: It forces Streamlit to ignore the cache and read the live sheet
-    existing_data = conn.read(worksheet="Legal_App_Logs", ttl=0) 
+    # 1. Target the correct tab name ("Sheet1") and bypass cache
+    existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3], ttl=0) 
     
-    # Clean up the existing data (drop empty rows Google adds by default)
+    # 2. Convert Google's empty strings into actual NaNs
+    existing_data = existing_data.replace(r'^\s*$', np.nan, regex=True)
+    
+    # 3. Drop the empty rows
     existing_data = existing_data.dropna(how="all")
     
-    # Create a dataframe for the new row
+    # 4. Create a dataframe for the new row
     new_df = pd.DataFrame([row_data])
     
-    # Merge them safely
+    # 5. Merge them safely
     if not existing_data.empty and len(existing_data.columns) > 0:
         updated_data = pd.concat([existing_data, new_df], ignore_index=True)
     else:
         updated_data = new_df
         
-    # Final scrub to ensure Google API doesn't choke on missing values
+    # 6. Final scrub
     updated_data = updated_data.fillna("")
     updated_data = updated_data.astype(str)
     
-    # Push back to Google
-    conn.update(worksheet="Legal_App_Logs", data=updated_data)
-
+    # 7. Push back to Google - targeting "Sheet1"
+    conn.update(worksheet="Sheet1", data=updated_data)
 # --- UI FRONTEND ---
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
