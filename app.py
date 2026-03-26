@@ -270,11 +270,38 @@ def search_system(query, top_k=5, candidate_pool=20):
     reranked.sort(key=lambda x: x['score'], reverse=True)
     return [r for r in reranked[:top_k] if r['score'] >= 0.01]
 
+# --- HELPER FUNCTION FOR DATABASE ---
+def append_to_sheet(row_data):
+    """Safely appends a single row dictionary to the Google Sheet."""
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    
+    # ttl=0 is CRITICAL: It forces Streamlit to ignore the cache and read the live sheet
+    existing_data = conn.read(worksheet="Legal_App_Logs", ttl=0) 
+    
+    # Clean up the existing data (drop empty rows Google adds by default)
+    existing_data = existing_data.dropna(how="all")
+    
+    # Create a dataframe for the new row
+    new_df = pd.DataFrame([row_data])
+    
+    # Merge them safely
+    if not existing_data.empty and len(existing_data.columns) > 0:
+        updated_data = pd.concat([existing_data, new_df], ignore_index=True)
+    else:
+        updated_data = new_df
+        
+    # Final scrub to ensure Google API doesn't choke on missing values
+    updated_data = updated_data.fillna("")
+    updated_data = updated_data.astype(str)
+    
+    # Push back to Google
+    conn.update(worksheet="Legal_App_Logs", data=updated_data)
+
 # --- UI FRONTEND ---
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
-# 1. Use session state to remember results so the feedback box works
+# Use session state to remember results so the feedback box works
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 if 'last_query' not in st.session_state:
@@ -290,40 +317,24 @@ if st.button("Search Arguments", type="primary"):
             st.session_state.last_query = user_query
             
             if results:
-                # --- AUTO-SAVE SEARCH HISTORY TO GOOGLE SHEETS ---
+                # --- AUTO-SAVE SEARCH HISTORY ---
                 try:
-                    conn = st.connection("gsheets", type=GSheetsConnection)
                     top_cases = " | ".join([r['case_name'] for r in results])
-                    
-                    new_row = pd.DataFrame([{
+                    log_data = {
                         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "Query": user_query,
                         "Top Cases": top_cases,
                         "User Review": "Auto-saved search log" 
-                    }])
-                    
-                    # Read only the 4 columns and drop empty rows
-                    existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
-                    existing_data = existing_data.dropna(how="all")
-                    
-                    if not existing_data.empty:
-                        updated_data = pd.concat([existing_data, new_row], ignore_index=True)
-                    else:
-                        updated_data = new_row
-                    
-                    # Clean the data before sending to Google
-                    updated_data = updated_data.fillna("")
-                    updated_data = updated_data.astype(str)
-                        
-                    conn.update(worksheet="Legal_App_Logs", data=updated_data)
+                    }
+                    append_to_sheet(log_data)
                 except Exception as e:
-                    st.warning(f"Background save to database failed: {e}")
+                    st.warning(f"Background save failed (Search Log): {e}")
             else:
                 st.warning("No relevant arguments found. Try rephrasing.")
     else:
         st.warning("Please enter a query first.")
 
-# 2. DISPLAY RESULTS (if they exist in session state)
+# 2. DISPLAY RESULTS
 if st.session_state.search_results:
     results = st.session_state.search_results
     st.success(f"Found {len(results)} highly relevant arguments.")
@@ -350,30 +361,14 @@ if st.session_state.search_results:
         
         if submit_feedback and feedback_text.strip():
             try:
-                conn = st.connection("gsheets", type=GSheetsConnection)
                 top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
-                
-                feedback_row = pd.DataFrame([{
+                feedback_data = {
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "Query": st.session_state.last_query,
                     "Top Cases": top_cases,
                     "User Review": feedback_text 
-                }])
-                
-                # Read only the 4 columns and drop empty rows
-                existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
-                existing_data = existing_data.dropna(how="all")
-                
-                if not existing_data.empty:
-                    updated_data = pd.concat([existing_data, feedback_row], ignore_index=True)
-                else:
-                    updated_data = feedback_row
-                
-                # Clean the data before sending to Google
-                updated_data = updated_data.fillna("")
-                updated_data = updated_data.astype(str)
-                    
-                conn.update(worksheet="Legal_App_Logs", data=updated_data)
+                }
+                append_to_sheet(feedback_data)
                 st.success("Thank you! Your feedback has been recorded.")
             except Exception as e:
                 st.error(f"Failed to save feedback: {e}")
