@@ -21,9 +21,19 @@ from transformers import AutoTokenizer, AutoModel
 import faiss
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="Section 115 CPC Argument Retriever", page_icon="⚖️", layout="wide")
-st.title("⚖️ Section 115 CPC — Hybrid Argument Retrieval")
-st.markdown("Retrieve legal arguments using FAISS, TF-IDF, and InLegalBERT (IIT Kharagpur).")
+st.set_page_config(page_title="Argument-Level Retrieval POC", page_icon="⚖️", layout="wide")
+
+# 1. Paper Title & Subtitle
+st.markdown("## ⚖️ beyond case-level retrieval: proposing an argument-level schema for verbatim argument retrieval from indian judicial decisions")
+st.markdown("#### A Pilot Study Demonstrated on Section 115 of the Code of Civil Procedure, 1908")
+
+# 2. Author Credit & 3. What to Expect
+st.info("""
+**About this Prototype:** This site is a proof of concept supporting the research idea by **[soubhagyashree das](https://www.linkedin.com/in/soubhagyashree/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BXh%2Fws045RXynY8fZcxx2qA%3D%3D)**, a law student.
+
+**What to Expect:** Instead of just returning full case files, this tool is designed to drill down into the specifics. By entering case facts or a legal issue, the system retrieves highly relevant **verbatim arguments** made in court, mapped directly to the court's reasoning and the underlying rule of law. It leverages a hybrid AI search approach to surface precise legal arguments concerning Section 115 of the CPC.
+""")
+st.divider()
 
 # --- 1. CACHE DATA LOADING ---
 @st.cache_data
