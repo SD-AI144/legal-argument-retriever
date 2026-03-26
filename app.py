@@ -276,28 +276,35 @@ def append_to_sheet(row_data):
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # 1. Target the correct tab name ("Sheet1") and bypass cache
-    existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2, 3], ttl=0) 
+    try:
+        existing_data = conn.read(worksheet="Sheet1", ttl=0)
+    except Exception as e:
+        st.error(f"Could not read sheet. Please ensure a tab named 'Sheet1' exists.")
+        return
     
-    # 2. Convert Google's empty strings into actual NaNs
-    existing_data = existing_data.replace(r'^\s*$', np.nan, regex=True)
-    
-    # 3. Drop the empty rows
+    # 2. Drop completely empty rows
     existing_data = existing_data.dropna(how="all")
     
-    # 4. Create a dataframe for the new row
+    # 3. Define the exact columns your app generates
+    expected_cols = ["Timestamp", "Query", "Top Cases", "User Review"]
+    
+    # 4. CRITICAL FIX: If the sheet is completely blank or has weird headers, 
+    # we initialize it with our strict columns to prevent the 400 error.
+    if not all(col in existing_data.columns for col in expected_cols):
+        existing_data = pd.DataFrame(columns=expected_cols)
+        
+    # 5. Create new row dataframe
     new_df = pd.DataFrame([row_data])
     
-    # 5. Merge them safely
-    if not existing_data.empty and len(existing_data.columns) > 0:
-        updated_data = pd.concat([existing_data, new_df], ignore_index=True)
-    else:
-        updated_data = new_df
-        
-    # 6. Final scrub
+    # 6. Merge safely
+    updated_data = pd.concat([existing_data, new_df], ignore_index=True)
+    
+    # 7. Final scrub: Force absolutely everything (including headers) to be strings
     updated_data = updated_data.fillna("")
     updated_data = updated_data.astype(str)
+    updated_data.columns = updated_data.columns.astype(str)
     
-    # 7. Push back to Google - targeting "Sheet1"
+    # 8. Push back to Google
     conn.update(worksheet="Sheet1", data=updated_data)
 # --- UI FRONTEND ---
 st.markdown("### Enter Case Facts & Issue")
