@@ -291,7 +291,7 @@ if st.button("Search Arguments", type="primary"):
             
             if results:
                 # --- AUTO-SAVE SEARCH HISTORY TO GOOGLE SHEETS ---
-              try:
+                try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     top_cases = " | ".join([r['case_name'] for r in results])
                     
@@ -302,10 +302,8 @@ if st.button("Search Arguments", type="primary"):
                         "User Review": "Auto-saved search log" 
                     }])
                     
-                    # FIX 1: Read ONLY the first 4 columns (indexes 0, 1, 2, 3)
+                    # Read only the 4 columns and drop empty rows
                     existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
-                    
-                    # FIX 2: Drop the hundreds of blank rows Google Sheets leaves at the bottom
                     existing_data = existing_data.dropna(how="all")
                     
                     if not existing_data.empty:
@@ -313,6 +311,7 @@ if st.button("Search Arguments", type="primary"):
                     else:
                         updated_data = new_row
                     
+                    # Clean the data before sending to Google
                     updated_data = updated_data.fillna("")
                     updated_data = updated_data.astype(str)
                         
@@ -350,7 +349,7 @@ if st.session_state.search_results:
         submit_feedback = st.form_submit_button("Submit Feedback")
         
         if submit_feedback and feedback_text.strip():
-           try:
+            try:
                 conn = st.connection("gsheets", type=GSheetsConnection)
                 top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
                 
@@ -361,10 +360,8 @@ if st.session_state.search_results:
                     "User Review": feedback_text 
                 }])
                 
-                # FIX 1: Read ONLY the first 4 columns
+                # Read only the 4 columns and drop empty rows
                 existing_data = conn.read(worksheet="Legal_App_Logs", usecols=[0, 1, 2, 3]) 
-                
-                # FIX 2: Drop all the blank rows
                 existing_data = existing_data.dropna(how="all")
                 
                 if not existing_data.empty:
@@ -372,6 +369,7 @@ if st.session_state.search_results:
                 else:
                     updated_data = feedback_row
                 
+                # Clean the data before sending to Google
                 updated_data = updated_data.fillna("")
                 updated_data = updated_data.astype(str)
                     
