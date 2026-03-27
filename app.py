@@ -312,6 +312,21 @@ def send_phone_notification(query):
         pass # If the notification fails, fail silently so the user's search still works
 
 # --- UI FRONTEND ---
+# 🚨 TEMPORARY DEBUG BUTTON 🚨
+if st.button("🚨 TEST PHONE NOTIFICATION 🚨"):
+    try:
+        # REPLACE THIS WITH YOUR EXACT SECRET TOPIC NAME!
+        test_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
+        
+        response = requests.post(test_url, data="Testing from Streamlit!".encode('utf-8'))
+        response.raise_for_status() # Checks if ntfy blocked it
+        st.success("✅ Signal sent successfully from Streamlit! Did your phone buzz?")
+    except Exception as e:
+        st.error(f"❌ FAILED to send: {e}")
+st.divider()
+
+# ... rest of your UI code (st.markdown("### Enter Case Facts & Issue"), etc.)
+
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
