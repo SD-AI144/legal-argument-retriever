@@ -8,3 +8,4 @@ openpyxl
 scikit-learn
 transformers
 torch
+requests
