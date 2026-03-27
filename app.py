@@ -85,7 +85,7 @@ def load_models_and_build_indexes(texts, principle_texts):
     index.add(embeddings)
 
     # FIX 2: Added stop_words='english' to prevent garbage connector word matches
-    tfidf_full = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
+     = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
     matrix_full = tfidf_full.fit_transform(texts)
 
     tfidf_principle = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
@@ -101,7 +101,7 @@ def load_models_and_build_indexes(texts, principle_texts):
 
 with st.spinner("Loading AI Models and Legal Database... (This takes a minute on startup)"):
     df, texts, principle_texts = load_data()
-    model_stage1, index, tfidf_full, matrix_full, tfidf_principle, matrix_principle, inlegal_tokenizer, inlegal_model = load_models_and_build_indexes(texts, principle_texts)
+    model_stage1, index, , matrix_full, tfidf_principle, matrix_principle, inlegal_tokenizer, inlegal_model = load_models_and_build_indexes(texts, principle_texts)
 
 # --- 3. HELPER FUNCTIONS ---
 LEGAL_SYNONYMS = {
@@ -211,11 +211,52 @@ def search_system(query, top_k=5, candidate_pool=20):
         if idx >= 0 and float(score) >= FAISS_MIN_RAW
     }
 
+    qvec_full = .transform([expanded_query])
+    scores_full_raw = cosine_similarity(qvec_full, matrix_full).flatten()
+
+    qvec_principle = tfidf_principle.transform([expanded_query])
+    scores_principle_raw = cosine_similarity(qvec_principle, matrix_principle).flatten()
+
+
+    def norm_dict_abs(d, clip_max=0.85):
+        return {k: min(v / clip_max, 1.0) for k, v in d.items()}
+def search_system(query, top_k=5, candidate_pool=20):
+    expanded_query, matched_terms = expand_query(query)
+
+   # --- STAGE 1: HYBRID SEARCH ---
+    query_embedding = model_stage1.encode([expanded_query], convert_to_numpy=True)
+    faiss.normalize_L2(query_embedding)
+    k = min(candidate_pool * 4, len(texts))
+    sem_scores_raw, sem_indices = index.search(query_embedding, k)
+    
+    FAISS_MIN_RAW = 0.20
+    sem_scores = {
+        int(idx): float(score) 
+        for idx, score in zip(sem_indices[0], sem_scores_raw[0]) 
+        if idx >= 0 and float(score) >= FAISS_MIN_RAW
+    }
+
     qvec_full = tfidf_full.transform([expanded_query])
     scores_full_raw = cosine_similarity(qvec_full, matrix_full).flatten()
 
     qvec_principle = tfidf_principle.transform([expanded_query])
     scores_principle_raw = cosine_similarity(qvec_principle, matrix_principle).flatten()
+
+    # ==========================================
+    # UPGRADED OUT-OF-DOMAIN (OOD) VETO
+    # ==========================================
+    max_tfidf = float(scores_full_raw.max()) if len(scores_full_raw) > 0 else 0.0
+    
+    # NEW: Get the highest semantic "vibe" score from FAISS
+    max_sem = max(sem_scores.values()) if sem_scores else 0.0
+    
+    # To be blocked as OOD, a query must fail ALL THREE tests:
+    # 1. No exact legal synonyms triggered
+    # 2. Less than 5% exact vocabulary match (TF-IDF)
+    # 3. Less than 30% semantic similarity (MiniLM/FAISS)
+    if len(matched_terms) == 0 and max_tfidf < 0.05 and max_sem < 0.30:
+        return [{"OOD_FLAG": True}]
+    # ==========================================
 
     def norm_dict_abs(d, clip_max=0.85):
         return {k: min(v / clip_max, 1.0) for k, v in d.items()}
@@ -258,7 +299,7 @@ def search_system(query, top_k=5, candidate_pool=20):
             'rule_of_law': str(row.get('RULE OF LAW', 'N/A')), 'keyword': str(row.get('KEYWORD', 'N/A')),
             'link': str(row.get('LINK', 'N/A'))
         })
-
+        
     # --- STAGE 2: INLEGALBERT RERANKING ---
     reranked = []
     for c in candidates:
