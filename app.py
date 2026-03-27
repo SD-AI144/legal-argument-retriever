@@ -85,7 +85,7 @@ def load_models_and_build_indexes(texts, principle_texts):
     index.add(embeddings)
 
     # FIX 2: Added stop_words='english' to prevent garbage connector word matches
-     = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
+    tfidf_full = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
     matrix_full = tfidf_full.fit_transform(texts)
 
     tfidf_principle = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
@@ -101,7 +101,7 @@ def load_models_and_build_indexes(texts, principle_texts):
 
 with st.spinner("Loading AI Models and Legal Database... (This takes a minute on startup)"):
     df, texts, principle_texts = load_data()
-    model_stage1, index, , matrix_full, tfidf_principle, matrix_principle, inlegal_tokenizer, inlegal_model = load_models_and_build_indexes(texts, principle_texts)
+    model_stage1, index, tfidf_full, matrix_full, tfidf_principle, matrix_principle, inlegal_tokenizer, inlegal_model = load_models_and_build_indexes(texts, principle_texts)
 
 # --- 3. HELPER FUNCTIONS ---
 LEGAL_SYNONYMS = {
@@ -222,13 +222,8 @@ def search_system(query, top_k=5, candidate_pool=20):
     # ==========================================
     max_tfidf = float(scores_full_raw.max()) if len(scores_full_raw) > 0 else 0.0
     
-    # NEW: Get the highest semantic "vibe" score from FAISS
     max_sem = max(sem_scores.values()) if sem_scores else 0.0
     
-    # To be blocked as OOD, a query must fail ALL THREE tests:
-    # 1. No exact legal synonyms triggered
-    # 2. Less than 5% exact vocabulary match (TF-IDF)
-    # 3. Less than 30% semantic similarity (MiniLM/FAISS)
     if len(matched_terms) == 0 and max_tfidf < 0.05 and max_sem < 0.30:
         return [{"OOD_FLAG": True}]
     # ==========================================
@@ -243,11 +238,8 @@ def search_system(query, top_k=5, candidate_pool=20):
         f_norm = float(full_norm[idx])
         p_norm = float(principle_norm[idx])
         
-        # NEW FIX: The "Hard Zero" Penalty
-        # If there are ZERO exact keyword matches in the whole legal text, 
-        # it's likely a hallucinated semantic match (like the word "ok").
         if f_norm == 0.0 and p_norm == 0.0:
-            s_norm = s_norm * 0.10 # Crush the semantic score by 90%
+            s_norm = s_norm * 0.10 
             
         final_scores[idx] = (s_norm * 0.40) + (f_norm * 0.30) + (p_norm * 0.30)
 
@@ -275,9 +267,6 @@ def search_system(query, top_k=5, candidate_pool=20):
         candidate_text = f"{c['argument']} {c['rule_of_law']}"
         raw_bert_sim = inlegalbert_similarity(query, candidate_text)
         
-        # NEW FIX: Recalibrate BERT Anisotropy
-        # Instead of (sim + 1)/2, we treat anything below 0.75 as 0 relevance, 
-        # and scale the remaining 0.75 -> 1.0 gap into a 0.0 -> 1.0 score.
         rl_score_norm = max(0.0, (raw_bert_sim - 0.75) / 0.25)
         
         final = (0.70 * c['hybrid_score']) + (0.30 * rl_score_norm)
@@ -286,22 +275,6 @@ def search_system(query, top_k=5, candidate_pool=20):
     reranked.sort(key=lambda x: x['score'], reverse=True)
     return [r for r in reranked[:top_k] if r['score'] >= MIN_RELEVANCE_THRESHOLD]
 
-    # --- STAGE 2: INLEGALBERT RERANKING ---
-    reranked = []
-    for c in candidates:
-        candidate_text = f"{c['argument']} {c['rule_of_law']}"
-        raw_bert_sim = inlegalbert_similarity(query, candidate_text)
-        
-        # NEW FIX: Recalibrate BERT Anisotropy
-        # Instead of (sim + 1)/2, we treat anything below 0.75 as 0 relevance, 
-        # and scale the remaining 0.75 -> 1.0 gap into a 0.0 -> 1.0 score.
-        rl_score_norm = max(0.0, (raw_bert_sim - 0.75) / 0.25)
-        
-        final = (0.70 * c['hybrid_score']) + (0.30 * rl_score_norm)
-        reranked.append({**c, 'score': round(final, 4)})
-
-    reranked.sort(key=lambda x: x['score'], reverse=True)
-    return [r for r in reranked[:top_k] if r['score'] >= MIN_RELEVANCE_THRESHOLD]
 
 # --- HELPER FUNCTION FOR DATABASE ---
 def append_to_sheet(row_data):
@@ -324,25 +297,19 @@ def append_to_sheet(row_data):
     updated_data.columns = updated_data.columns.astype(str)
     conn.update(worksheet="Sheet1", data=updated_data)
 
-# FIX 4: Input Pre-flight Validator
 # FIX 4: Input Pre-flight Validator (Updated with Keyword Salad Detector)
 def is_valid_legal_query(query: str) -> tuple[bool, str]:
     q = query.strip().lower()
     words = q.split()
     
-    # 1. Check minimum length
     if len(words) < 3:
         return False, "Please describe the legal issue in at least 3–4 words."
         
-    # 2. Check for meaningful characters
     if sum(c.isalpha() for c in q) < 10:
         return False, "Please enter a meaningful legal query."
         
-    # 3. NEW: The "Keyword Salad" Detector
-    # Natural sentences use grammatical connectors. Lists of keywords do not.
     connectors = {'the', 'a', 'an', 'to', 'in', 'of', 'and', 'was', 'is', 'for', 'on', 'by', 'with', 'that', 'from', 'under', 'after', 'before'}
     
-    # If the query is 5 words or longer, it MUST contain at least one natural connector word
     if len(words) >= 5 and not any(word in connectors for word in words):
         return False, "Your input looks like a list of random keywords. Please write a natural sentence describing the facts or legal issue (e.g., 'The trial court dismissed the appeal...')."
         
@@ -352,33 +319,31 @@ def is_valid_legal_query(query: str) -> tuple[bool, str]:
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
-# Use session state to remember results so the feedback box works
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 if 'last_query' not in st.session_state:
     st.session_state.last_query = ""
 
 # ==========================================
-# THIS IS WHERE YOUR NEW CODE GOES
+# SEARCH BUTTON LOGIC
 # ==========================================
 if st.button("Search Arguments", type="primary"):
     if user_query.strip():
-        # 1. Run the validator first
         valid, reason = is_valid_legal_query(user_query)
         if not valid:
-            # 2. If it's a garbage query like "ok", stop and show the warning
             st.warning(reason) 
         else:
-            # 3. If it's a valid query, run the heavy AI models
             with st.spinner("Searching and Re-ranking..."):
                 results = search_system(user_query, top_k=5)
                 
-                # Save results and query to session state
-                st.session_state.search_results = results
-                st.session_state.last_query = user_query
-                
-                if results:
-                    # --- AUTO-SAVE SEARCH HISTORY ---
+                # Check for OOD Flag from the search_system
+                if results and "OOD_FLAG" in results[0]:
+                    st.warning("⚖️ **Out of Domain:** Your query is valid, but it appears to be about a completely different area of law (e.g., criminal, family, or corporate law). This tool is highly specialized only for civil revisions under **Section 115 of the Civil Procedure Code**.")
+                    st.session_state.search_results = None 
+                    st.session_state.last_query = user_query
+                elif results:
+                    st.session_state.search_results = results
+                    st.session_state.last_query = user_query
                     try:
                         top_cases = " | ".join([r['case_name'] for r in results])
                         log_data = {
@@ -392,11 +357,12 @@ if st.button("Search Arguments", type="primary"):
                         st.warning(f"Background save failed (Search Log): {e}")
                 else:
                     st.warning("No relevant arguments found. Try rephrasing.")
+                    st.session_state.search_results = None
     else:
         st.warning("Please enter a query first.")
 
 # ==========================================
-# DISPLAY RESULTS SECTION REMAINS THE SAME
+# DISPLAY RESULTS
 # ==========================================
 if st.session_state.search_results:
     results = st.session_state.search_results
