@@ -1,3 +1,4 @@
+import requests
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
@@ -275,28 +276,6 @@ def search_system(query, top_k=5, candidate_pool=20):
     reranked.sort(key=lambda x: x['score'], reverse=True)
     return [r for r in reranked[:top_k] if r['score'] >= MIN_RELEVANCE_THRESHOLD]
 
-
-# --- HELPER FUNCTION FOR DATABASE ---
-def append_to_sheet(row_data):
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    try:
-        existing_data = conn.read(worksheet="Sheet1", ttl=0)
-    except Exception as e:
-        st.error(f"Could not read sheet. Please ensure a tab named 'Sheet1' exists.")
-        return
-    existing_data = existing_data.dropna(how="all")
-    expected_cols = ["Timestamp", "Query", "Top Cases", "User Review"]
-    
-    if not all(col in existing_data.columns for col in expected_cols):
-        existing_data = pd.DataFrame(columns=expected_cols)
-        
-    new_df = pd.DataFrame([row_data])
-    updated_data = pd.concat([existing_data, new_df], ignore_index=True)
-    updated_data = updated_data.fillna("")
-    updated_data = updated_data.astype(str)
-    updated_data.columns = updated_data.columns.astype(str)
-    conn.update(worksheet="Sheet1", data=updated_data)
-
 # FIX 4: Input Pre-flight Validator (Updated with Keyword Salad Detector)
 def is_valid_legal_query(query: str) -> tuple[bool, str]:
     q = query.strip().lower()
@@ -314,6 +293,23 @@ def is_valid_legal_query(query: str) -> tuple[bool, str]:
         return False, "Your input looks like a list of random keywords. Please write a natural sentence describing the facts or legal issue (e.g., 'The trial court dismissed the appeal...')."
         
     return True, ""
+
+def send_phone_notification(query):
+    try:
+        # Replace this with your exact secret topic name!
+        topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
+        
+        requests.post(
+            topic_url,
+            data=f"Someone just searched for:\n\n{query}".encode('utf-8'),
+            headers={
+                "Title": "⚖️ New AI Legal Search!", 
+                "Tags": "mag" # Adds a little magnifying glass emoji
+            },
+            timeout=2 # Stops the app from freezing if the internet is slow
+        )
+    except:
+        pass # If the notification fails, fail silently so the user's search still works
 
 # --- UI FRONTEND ---
 st.markdown("### Enter Case Facts & Issue")
@@ -333,6 +329,9 @@ if st.button("Search Arguments", type="primary"):
         if not valid:
             st.warning(reason) 
         else:
+            # 🔔 SEND YOUR PHONE NOTIFICATION HERE!
+            send_phone_notification(user_query)
+            
             with st.spinner("Searching and Re-ranking..."):
                 results = search_system(user_query, top_k=5)
                 
@@ -344,23 +343,12 @@ if st.button("Search Arguments", type="primary"):
                 elif results:
                     st.session_state.search_results = results
                     st.session_state.last_query = user_query
-                    try:
-                        top_cases = " | ".join([r['case_name'] for r in results])
-                        log_data = {
-                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "Query": user_query,
-                            "Top Cases": top_cases,
-                            "User Review": "Auto-saved search log" 
-                        }
-                        append_to_sheet(log_data)
-                    except Exception as e:
-                        st.warning(f"Background save failed (Search Log): {e}")
+                    # (Google Sheets code removed for cleaner performance)
                 else:
                     st.warning("No relevant arguments found. Try rephrasing.")
                     st.session_state.search_results = None
     else:
         st.warning("Please enter a query first.")
-
 # ==========================================
 # DISPLAY RESULTS
 # ==========================================
@@ -382,22 +370,17 @@ if st.session_state.search_results:
 
     st.divider()
     
-    # OPTIONAL FEEDBACK BOX
+  # OPTIONAL FEEDBACK BOX
     st.markdown("#### 📝 Optional: Help improve this research!")
     with st.form("feedback_form", clear_on_submit=True):
         feedback_text = st.text_area("Did these results help? Were any arguments irrelevant?")
         submit_feedback = st.form_submit_button("Submit Feedback")
         
         if submit_feedback and feedback_text.strip():
+            # Send feedback directly to your phone instead of Google Sheets!
             try:
-                top_cases = " | ".join([r['case_name'] for r in st.session_state.search_results])
-                feedback_data = {
-                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Query": st.session_state.last_query,
-                    "Top Cases": top_cases,
-                    "User Review": feedback_text 
-                }
-                append_to_sheet(feedback_data)
-                st.success("Thank you! Your feedback has been recorded.")
+                alert_message = f"📝 NEW FEEDBACK!\n\nUser Query: {st.session_state.last_query}\n\nFeedback: {feedback_text}"
+                send_phone_notification(alert_message)
+                st.success("Thank you! Your feedback has been sent to the researcher.")
             except Exception as e:
-                st.error(f"Failed to save feedback: {e}")
+                st.error("Failed to send feedback.")
