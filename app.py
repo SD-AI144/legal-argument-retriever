@@ -76,6 +76,7 @@ def load_data():
 # --- PHONE NOTIFICATION HELPER ---
 def send_phone_notification(message):
     try:
+        # ⚠️ PASTE YOUR WORKING URL HERE:
         topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz".strip() 
         
         requests.post(
