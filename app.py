@@ -211,31 +211,6 @@ def search_system(query, top_k=5, candidate_pool=20):
         if idx >= 0 and float(score) >= FAISS_MIN_RAW
     }
 
-    qvec_full = .transform([expanded_query])
-    scores_full_raw = cosine_similarity(qvec_full, matrix_full).flatten()
-
-    qvec_principle = tfidf_principle.transform([expanded_query])
-    scores_principle_raw = cosine_similarity(qvec_principle, matrix_principle).flatten()
-
-
-    def norm_dict_abs(d, clip_max=0.85):
-        return {k: min(v / clip_max, 1.0) for k, v in d.items()}
-def search_system(query, top_k=5, candidate_pool=20):
-    expanded_query, matched_terms = expand_query(query)
-
-   # --- STAGE 1: HYBRID SEARCH ---
-    query_embedding = model_stage1.encode([expanded_query], convert_to_numpy=True)
-    faiss.normalize_L2(query_embedding)
-    k = min(candidate_pool * 4, len(texts))
-    sem_scores_raw, sem_indices = index.search(query_embedding, k)
-    
-    FAISS_MIN_RAW = 0.20
-    sem_scores = {
-        int(idx): float(score) 
-        for idx, score in zip(sem_indices[0], sem_scores_raw[0]) 
-        if idx >= 0 and float(score) >= FAISS_MIN_RAW
-    }
-
     qvec_full = tfidf_full.transform([expanded_query])
     scores_full_raw = cosine_similarity(qvec_full, matrix_full).flatten()
 
@@ -257,12 +232,6 @@ def search_system(query, top_k=5, candidate_pool=20):
     if len(matched_terms) == 0 and max_tfidf < 0.05 and max_sem < 0.30:
         return [{"OOD_FLAG": True}]
     # ==========================================
-
-    def norm_dict_abs(d, clip_max=0.85):
-        return {k: min(v / clip_max, 1.0) for k, v in d.items()}
-
-    def norm_arr_abs(arr, clip_max=0.85):
-        return np.clip(arr / clip_max, 0, 1.0)
 
     sem_norm = norm_dict_abs(sem_scores, clip_max=0.85)
     full_norm = norm_arr_abs(scores_full_raw, clip_max=0.85)
@@ -299,7 +268,24 @@ def search_system(query, top_k=5, candidate_pool=20):
             'rule_of_law': str(row.get('RULE OF LAW', 'N/A')), 'keyword': str(row.get('KEYWORD', 'N/A')),
             'link': str(row.get('LINK', 'N/A'))
         })
+
+    # --- STAGE 2: INLEGALBERT RERANKING ---
+    reranked = []
+    for c in candidates:
+        candidate_text = f"{c['argument']} {c['rule_of_law']}"
+        raw_bert_sim = inlegalbert_similarity(query, candidate_text)
         
+        # NEW FIX: Recalibrate BERT Anisotropy
+        # Instead of (sim + 1)/2, we treat anything below 0.75 as 0 relevance, 
+        # and scale the remaining 0.75 -> 1.0 gap into a 0.0 -> 1.0 score.
+        rl_score_norm = max(0.0, (raw_bert_sim - 0.75) / 0.25)
+        
+        final = (0.70 * c['hybrid_score']) + (0.30 * rl_score_norm)
+        reranked.append({**c, 'score': round(final, 4)})
+
+    reranked.sort(key=lambda x: x['score'], reverse=True)
+    return [r for r in reranked[:top_k] if r['score'] >= MIN_RELEVANCE_THRESHOLD]
+
     # --- STAGE 2: INLEGALBERT RERANKING ---
     reranked = []
     for c in candidates:
