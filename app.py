@@ -1,11 +1,10 @@
-import requests
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import numpy as np
 import re
 import torch
+import requests
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -74,10 +73,26 @@ def load_data():
 
     return df, texts, principle_texts
 
+# --- PHONE NOTIFICATION HELPER ---
+def send_phone_notification(message):
+    try:
+        topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
+        
+        requests.post(
+            topic_url,
+            data=message.encode('utf-8'),
+            headers={
+                "Title": "⚖️ AI App Alert!", 
+                "Tags": "mag"
+            },
+            timeout=3
+        )
+    except:
+        pass # Fail silently so the app never crashes for the user
+
 # --- 2. CACHE MODELS AND INDEXES ---
 @st.cache_resource
 def load_models_and_build_indexes(texts, principle_texts):
-    # Stage 1: all-MiniLM
     model_stage1 = SentenceTransformer('all-MiniLM-L6-v2')
     embeddings = model_stage1.encode(texts, batch_size=32, convert_to_numpy=True)
     faiss.normalize_L2(embeddings)
@@ -85,14 +100,12 @@ def load_models_and_build_indexes(texts, principle_texts):
     index = faiss.IndexFlatIP(dimension)
     index.add(embeddings)
 
-    # FIX 2: Added stop_words='english' to prevent garbage connector word matches
     tfidf_full = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
     matrix_full = tfidf_full.fit_transform(texts)
 
     tfidf_principle = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), min_df=1, sublinear_tf=True, stop_words='english')
     matrix_principle = tfidf_principle.fit_transform(principle_texts)
 
-    # Stage 2: InLegalBERT
     INLEGALBERT_MODEL = "law-ai/InLegalBERT"
     inlegal_tokenizer = AutoTokenizer.from_pretrained(INLEGALBERT_MODEL)
     inlegal_model = AutoModel.from_pretrained(INLEGALBERT_MODEL)
@@ -188,9 +201,7 @@ def inlegalbert_similarity(query_text, candidate_text):
     norm = np.linalg.norm(q_emb) * np.linalg.norm(c_emb)
     return float(dot / norm) if norm > 0 else 0.0
 
-# FIX 1: Absolute Normalization Functions
 def norm_dict_abs(d, clip_max=0.85):
-    """Normalise against a fixed ceiling so low absolute scores stay low."""
     return {k: min(v / clip_max, 1.0) for k, v in d.items()}
 
 def norm_arr_abs(arr, clip_max=0.85):
@@ -218,20 +229,18 @@ def search_system(query, top_k=5, candidate_pool=20):
     qvec_principle = tfidf_principle.transform([expanded_query])
     scores_principle_raw = cosine_similarity(qvec_principle, matrix_principle).flatten()
 
-    # ==========================================
-    # UPGRADED OUT-OF-DOMAIN (OOD) VETO
-    # ==========================================
+    # OOD VETO
     max_tfidf = float(scores_full_raw.max()) if len(scores_full_raw) > 0 else 0.0
-    
     max_sem = max(sem_scores.values()) if sem_scores else 0.0
-    
     if len(matched_terms) == 0 and max_tfidf < 0.05 and max_sem < 0.30:
         return [{"OOD_FLAG": True}]
-    # ==========================================
 
     sem_norm = norm_dict_abs(sem_scores, clip_max=0.85)
     full_norm = norm_arr_abs(scores_full_raw, clip_max=0.85)
     principle_norm = norm_arr_abs(scores_principle_raw, clip_max=0.85)
+
+    # DETECT SPECIFIC PROCEDURAL RULES IN QUERY
+    user_rules = re.findall(r'(order\s*\d+|o\s*\d+|rule\s*\d+|r\s*\d+|sec\w*\s*\d+)', query.lower())
 
     final_scores = {}
     for idx in range(len(texts)):
@@ -239,9 +248,19 @@ def search_system(query, top_k=5, candidate_pool=20):
         f_norm = float(full_norm[idx])
         p_norm = float(principle_norm[idx])
         
+        # HARD ZERO PENALTY (Hallucination block)
         if f_norm == 0.0 and p_norm == 0.0:
             s_norm = s_norm * 0.10 
             
+        # PROCEDURAL PENALTY (Prevents Order 9 cases showing up in Order 7 queries)
+        if user_rules:
+            candidate_text = texts[idx].lower()
+            has_matching_rule = any(rule in candidate_text for rule in user_rules)
+            if not has_matching_rule:
+                f_norm = f_norm * 0.10
+                p_norm = p_norm * 0.10
+                s_norm = s_norm * 0.50
+                
         final_scores[idx] = (s_norm * 0.40) + (f_norm * 0.30) + (p_norm * 0.30)
 
     ranked = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)[:candidate_pool]
@@ -276,7 +295,7 @@ def search_system(query, top_k=5, candidate_pool=20):
     reranked.sort(key=lambda x: x['score'], reverse=True)
     return [r for r in reranked[:top_k] if r['score'] >= MIN_RELEVANCE_THRESHOLD]
 
-# FIX 4: Input Pre-flight Validator (Updated with Keyword Salad Detector)
+
 def is_valid_legal_query(query: str) -> tuple[bool, str]:
     q = query.strip().lower()
     words = q.split()
@@ -294,39 +313,7 @@ def is_valid_legal_query(query: str) -> tuple[bool, str]:
         
     return True, ""
 
-def send_phone_notification(query):
-    try:
-        # Replace this with your exact secret topic name!
-        topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
-        
-        requests.post(
-            topic_url,
-            data=f"Someone just searched for:\n\n{query}".encode('utf-8'),
-            headers={
-                "Title": "⚖️ New AI Legal Search!", 
-                "Tags": "mag" # Adds a little magnifying glass emoji
-            },
-            timeout=2 # Stops the app from freezing if the internet is slow
-        )
-    except:
-        pass # If the notification fails, fail silently so the user's search still works
-
 # --- UI FRONTEND ---
-# 🚨 TEMPORARY DEBUG BUTTON 🚨
-if st.button("🚨 TEST PHONE NOTIFICATION 🚨"):
-    try:
-        # REPLACE THIS WITH YOUR EXACT SECRET TOPIC NAME!
-        test_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
-        
-        response = requests.post(test_url, data="Testing from Streamlit!".encode('utf-8'))
-        response.raise_for_status() # Checks if ntfy blocked it
-        st.success("✅ Signal sent successfully from Streamlit! Did your phone buzz?")
-    except Exception as e:
-        st.error(f"❌ FAILED to send: {e}")
-st.divider()
-
-# ... rest of your UI code (st.markdown("### Enter Case Facts & Issue"), etc.)
-
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
@@ -344,13 +331,13 @@ if st.button("Search Arguments", type="primary"):
         if not valid:
             st.warning(reason) 
         else:
-            # 🔔 SEND YOUR PHONE NOTIFICATION HERE!
-            send_phone_notification(user_query)
+            # 🔔 PHONE NOTIFICATION 
+            send_phone_notification(f"Someone just searched for:\n\n{user_query}")
             
             with st.spinner("Searching and Re-ranking..."):
                 results = search_system(user_query, top_k=5)
                 
-                # Check for OOD Flag from the search_system
+                # Check for OOD Flag 
                 if results and "OOD_FLAG" in results[0]:
                     st.warning("⚖️ **Out of Domain:** Your query is valid, but it appears to be about a completely different area of law (e.g., criminal, family, or corporate law). This tool is highly specialized only for civil revisions under **Section 115 of the Civil Procedure Code**.")
                     st.session_state.search_results = None 
@@ -358,12 +345,12 @@ if st.button("Search Arguments", type="primary"):
                 elif results:
                     st.session_state.search_results = results
                     st.session_state.last_query = user_query
-                    # (Google Sheets code removed for cleaner performance)
                 else:
                     st.warning("No relevant arguments found. Try rephrasing.")
                     st.session_state.search_results = None
     else:
         st.warning("Please enter a query first.")
+
 # ==========================================
 # DISPLAY RESULTS
 # ==========================================
@@ -385,14 +372,15 @@ if st.session_state.search_results:
 
     st.divider()
     
-  # OPTIONAL FEEDBACK BOX
+    # ==========================================
+    # FEEDBACK FORM (Also sends to phone!)
+    # ==========================================
     st.markdown("#### 📝 Optional: Help improve this research!")
     with st.form("feedback_form", clear_on_submit=True):
         feedback_text = st.text_area("Did these results help? Were any arguments irrelevant?")
         submit_feedback = st.form_submit_button("Submit Feedback")
         
         if submit_feedback and feedback_text.strip():
-            # Send feedback directly to your phone instead of Google Sheets!
             try:
                 alert_message = f"📝 NEW FEEDBACK!\n\nUser Query: {st.session_state.last_query}\n\nFeedback: {feedback_text}"
                 send_phone_notification(alert_message)
