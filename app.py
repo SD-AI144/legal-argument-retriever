@@ -322,7 +322,7 @@ user_query = st.text_area("Type your query in plain language here...", height=15
 if st.button("🚨 TEST PHONE NOTIFICATION 🚨"):
     try:
         # ⚠️ REPLACE THIS WITH YOUR EXACT SECRET TOPIC NAME ⚠️
-        test_url = "https://ntfy.sh/your_exact_secret_topic_name".strip() 
+        test_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz".strip() 
         
         response = requests.post(
             test_url, 
