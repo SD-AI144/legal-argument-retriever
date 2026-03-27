@@ -198,12 +198,12 @@ def norm_arr_abs(arr, clip_max=0.85):
 def search_system(query, top_k=5, candidate_pool=20):
     expanded_query, matched_terms = expand_query(query)
 
+    # --- STAGE 1: HYBRID SEARCH ---
     query_embedding = model_stage1.encode([expanded_query], convert_to_numpy=True)
     faiss.normalize_L2(query_embedding)
     k = min(candidate_pool * 4, len(texts))
     sem_scores_raw, sem_indices = index.search(query_embedding, k)
     
-    # FIX 2b: FAISS Raw Score Floor. Ignore pure garbage semantics entirely.
     FAISS_MIN_RAW = 0.20
     sem_scores = {
         int(idx): float(score) 
@@ -217,18 +217,31 @@ def search_system(query, top_k=5, candidate_pool=20):
     qvec_principle = tfidf_principle.transform([expanded_query])
     scores_principle_raw = cosine_similarity(qvec_principle, matrix_principle).flatten()
 
-    # FIX 1b: Apply the absolute normalization
+    def norm_dict_abs(d, clip_max=0.85):
+        return {k: min(v / clip_max, 1.0) for k, v in d.items()}
+
+    def norm_arr_abs(arr, clip_max=0.85):
+        return np.clip(arr / clip_max, 0, 1.0)
+
     sem_norm = norm_dict_abs(sem_scores, clip_max=0.85)
     full_norm = norm_arr_abs(scores_full_raw, clip_max=0.85)
     principle_norm = norm_arr_abs(scores_principle_raw, clip_max=0.85)
 
     final_scores = {}
     for idx in range(len(texts)):
-        final_scores[idx] = (sem_norm.get(idx, 0)*0.40) + (float(full_norm[idx])*0.30) + (float(principle_norm[idx])*0.30)
+        s_norm = sem_norm.get(idx, 0)
+        f_norm = float(full_norm[idx])
+        p_norm = float(principle_norm[idx])
+        
+        # NEW FIX: The "Hard Zero" Penalty
+        # If there are ZERO exact keyword matches in the whole legal text, 
+        # it's likely a hallucinated semantic match (like the word "ok").
+        if f_norm == 0.0 and p_norm == 0.0:
+            s_norm = s_norm * 0.10 # Crush the semantic score by 90%
+            
+        final_scores[idx] = (s_norm * 0.40) + (f_norm * 0.30) + (p_norm * 0.30)
 
     ranked = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)[:candidate_pool]
-
-    # FIX 3: Raised Minimum Threshold
     MIN_RELEVANCE_THRESHOLD = 0.25 
 
     candidates = []
@@ -246,10 +259,17 @@ def search_system(query, top_k=5, candidate_pool=20):
             'link': str(row.get('LINK', 'N/A'))
         })
 
+    # --- STAGE 2: INLEGALBERT RERANKING ---
     reranked = []
     for c in candidates:
         candidate_text = f"{c['argument']} {c['rule_of_law']}"
-        rl_score_norm = (inlegalbert_similarity(query, candidate_text) + 1) / 2
+        raw_bert_sim = inlegalbert_similarity(query, candidate_text)
+        
+        # NEW FIX: Recalibrate BERT Anisotropy
+        # Instead of (sim + 1)/2, we treat anything below 0.75 as 0 relevance, 
+        # and scale the remaining 0.75 -> 1.0 gap into a 0.0 -> 1.0 score.
+        rl_score_norm = max(0.0, (raw_bert_sim - 0.75) / 0.25)
+        
         final = (0.70 * c['hybrid_score']) + (0.30 * rl_score_norm)
         reranked.append({**c, 'score': round(final, 4)})
 
@@ -290,25 +310,33 @@ def is_valid_legal_query(query: str) -> tuple[bool, str]:
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
 
+# Use session state to remember results so the feedback box works
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 if 'last_query' not in st.session_state:
     st.session_state.last_query = ""
 
+# ==========================================
+# THIS IS WHERE YOUR NEW CODE GOES
+# ==========================================
 if st.button("Search Arguments", type="primary"):
     if user_query.strip():
-        # APPLY FIX 4 HERE
+        # 1. Run the validator first
         valid, reason = is_valid_legal_query(user_query)
         if not valid:
-            st.warning(reason)
+            # 2. If it's a garbage query like "ok", stop and show the warning
+            st.warning(reason) 
         else:
+            # 3. If it's a valid query, run the heavy AI models
             with st.spinner("Searching and Re-ranking..."):
                 results = search_system(user_query, top_k=5)
                 
+                # Save results and query to session state
                 st.session_state.search_results = results
                 st.session_state.last_query = user_query
                 
                 if results:
+                    # --- AUTO-SAVE SEARCH HISTORY ---
                     try:
                         top_cases = " | ".join([r['case_name'] for r in results])
                         log_data = {
@@ -325,7 +353,9 @@ if st.button("Search Arguments", type="primary"):
     else:
         st.warning("Please enter a query first.")
 
-# 2. DISPLAY RESULTS
+# ==========================================
+# DISPLAY RESULTS SECTION REMAINS THE SAME
+# ==========================================
 if st.session_state.search_results:
     results = st.session_state.search_results
     st.success(f"Found {len(results)} highly relevant arguments.")
@@ -344,7 +374,7 @@ if st.session_state.search_results:
 
     st.divider()
     
-    # 3. OPTIONAL FEEDBACK BOX
+    # OPTIONAL FEEDBACK BOX
     st.markdown("#### 📝 Optional: Help improve this research!")
     with st.form("feedback_form", clear_on_submit=True):
         feedback_text = st.text_area("Did these results help? Were any arguments irrelevant?")
