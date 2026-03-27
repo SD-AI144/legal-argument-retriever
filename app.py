@@ -242,7 +242,7 @@ def search_system(query, top_k=5, candidate_pool=20):
         final_scores[idx] = (s_norm * 0.40) + (f_norm * 0.30) + (p_norm * 0.30)
 
     ranked = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)[:candidate_pool]
-    MIN_RELEVANCE_THRESHOLD = 0.25 
+    MIN_RELEVANCE_THRESHOLD = 0.32 
 
     candidates = []
     for idx, score in ranked:
@@ -298,12 +298,27 @@ def append_to_sheet(row_data):
     conn.update(worksheet="Sheet1", data=updated_data)
 
 # FIX 4: Input Pre-flight Validator
+# FIX 4: Input Pre-flight Validator (Updated with Keyword Salad Detector)
 def is_valid_legal_query(query: str) -> tuple[bool, str]:
-    q = query.strip()
-    if len(q.split()) < 3:
+    q = query.strip().lower()
+    words = q.split()
+    
+    # 1. Check minimum length
+    if len(words) < 3:
         return False, "Please describe the legal issue in at least 3–4 words."
+        
+    # 2. Check for meaningful characters
     if sum(c.isalpha() for c in q) < 10:
         return False, "Please enter a meaningful legal query."
+        
+    # 3. NEW: The "Keyword Salad" Detector
+    # Natural sentences use grammatical connectors. Lists of keywords do not.
+    connectors = {'the', 'a', 'an', 'to', 'in', 'of', 'and', 'was', 'is', 'for', 'on', 'by', 'with', 'that', 'from', 'under', 'after', 'before'}
+    
+    # If the query is 5 words or longer, it MUST contain at least one natural connector word
+    if len(words) >= 5 and not any(word in connectors for word in words):
+        return False, "Your input looks like a list of random keywords. Please write a natural sentence describing the facts or legal issue (e.g., 'The trial court dismissed the appeal...')."
+        
     return True, ""
 
 # --- UI FRONTEND ---
