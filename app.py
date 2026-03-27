@@ -76,7 +76,7 @@ def load_data():
 # --- PHONE NOTIFICATION HELPER ---
 def send_phone_notification(message):
     try:
-        topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz" 
+        topic_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz".strip() 
         
         requests.post(
             topic_url,
@@ -316,24 +316,7 @@ def is_valid_legal_query(query: str) -> tuple[bool, str]:
 # --- UI FRONTEND ---
 st.markdown("### Enter Case Facts & Issue")
 user_query = st.text_area("Type your query in plain language here...", height=150, placeholder="Example: The trial court allowed an amendment to the plaint after the trial had commenced...")
-# ==========================================
-# 🚨 PASTE THE TEST BUTTON RIGHT HERE 🚨
-# ==========================================
-if st.button("🚨 TEST PHONE NOTIFICATION 🚨"):
-    try:
-        # ⚠️ REPLACE THIS WITH YOUR EXACT SECRET TOPIC NAME ⚠️
-        test_url = "https://ntfy.sh/legal_alert_for_the_prototype_78899_xyz".strip() 
-        
-        response = requests.post(
-            test_url, 
-            data="BAREBONES TEST FROM STREAMLIT".encode('utf-8')
-        )
-        response.raise_for_status() 
-        st.success("✅ Barebones signal sent!")
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-st.divider()
-# ==========================================
+
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 if 'last_query' not in st.session_state:
