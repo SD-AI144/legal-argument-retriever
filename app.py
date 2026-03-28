@@ -13,7 +13,7 @@ import faiss
 
 # --- PAGE SETUP ---
 st.markdown(
-    "<h1 style='font-size: 32px; text-transform: uppercase;'>⚖️ beyond case-level retrieval: proposing an argument-level schema for verbatim argument retrieval from indian judicial decisions</h1>", 
+    "<h1 style='font-size: 32px; text-transform: uppercase;'>ARGLEX-⚖️ beyond case-level retrieval: proposing an argument-level schema for verbatim argument retrieval from indian judicial decisions</h1>", 
     unsafe_allow_html=True
 )
 
