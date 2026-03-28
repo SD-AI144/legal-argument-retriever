@@ -83,7 +83,7 @@ def send_phone_notification(message):
             topic_url,
             data=message.encode('utf-8'),
             headers={
-                "Title": "⚖️ AI App Alert!", 
+                "Title": "AI App Alert!", 
                 "Tags": "mag"
             },
             timeout=3
