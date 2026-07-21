@@ -1,3 +1,4 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 # Legal Argument Retriever ⚖️
 > **Zero-Hallucination, "Retrieval-Only" Precedent Search for Indian Civil Litigation**
 
@@ -120,3 +121,7 @@ To overcome the bottleneck of degraded official archives, the platform envisions
    ```bash
    git clone [https://github.com/SD-AI144/legal-argument-retriever.git](https://github.com/SD-AI144/legal-argument-retriever.git)
    cd legal-argument-retriever
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
