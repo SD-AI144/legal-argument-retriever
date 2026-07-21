@@ -56,6 +56,15 @@ To build a zero-hallucination platform, this project adopts three foundational d
 
 ---
 
+### ⚖️ Empirical Insight: Algorithmic Bias & The "Shadow Judge" Effect
+
+During hands-on testing of the retrieval engine, a crucial risk became clear: similarity scoring and ranking algorithms can unintentionally act as a **"Shadow Judge."** By deciding which legal arguments rank at the top, an automated system can subtly pre-determine an advocate's legal strategy before they ever step into court.
+
+* **The Product Risk:** If a retrieval engine over-indexes specific statutory phrasing or historic precedents, it risks steering practitioners down a narrow legal path while burying valid counter-arguments.
+* **Architectural Mitigation:** To enforce adversarial neutrality, the system explicitly indexes **both Accepted and Rejected arguments** alongside respondent rebuttals. The tool functions strictly as a transparent, dual-perspective recall engine, leaving strategic evaluation entirely to the advocate.
+
+---
+
 ## 🛠️ What To Fix Next (Roadmap)
 
 - [ ] **Vector DB Migration:** Transition from the static backend to **ChromaDB / Qdrant** for sub-second similarity search across tens of thousands of judgments.
@@ -64,6 +73,40 @@ To build a zero-hallucination platform, this project adopts three foundational d
 - [ ] **Expansion Beyond CPC 115:** Scale the curated argument mapping to include key civil and criminal statutory provisions (e.g., Section 397/401 CrPC / BNSS, Article 226/227 writs).
 
 ---
+
+
+## 🚀 Long-Term Vision: Graph Navigation & The Bar Commons
+
+### 🕸️ 1. The "Senior Brain" Argument Graph (Graph RAG)
+Moving beyond flat list retrieval to model the cognitive decision trees of senior advocates. The platform will render legal research as an interactive **Mindmap / Decision Tree**:
+* **Node-Based Exploration:** Expanding an argument dynamically reveals historical counter-arguments, strategic pivots, and court outcome branches.
+* **Adversarial Flowcharts:** Visualizing the live interaction between Petitioner claims and Respondent rebuttals pinned to paragraph anchors.
+
+### 🌐 2. Decentralized Corpus Curation ("The Bar Commons")
+To overcome the bottleneck of degraded official archives, the platform envisions a decentralized, peer-verified annotation protocol:
+* **Lawyer-Led Verification:** Tapping the collective intelligence of junior and senior advocates to tag, audit, and expand the structured argument database.
+* **Consensus-Backed Ground Truth:** Multi-reviewer verification guarantees 100% human accuracy before entries join the production index.
+
+```text
+                      [ User Base Claim / Revision ]
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  ▼                                   ▼
+        [ Argument Node A ]                 [ Argument Node B ]
+        (Procedural Bar u/s 115)            (Limitation Delay)
+                  │                                   │
+         ┌────────┴────────┐                 ┌────────┴────────┐
+         ▼                 ▼                 ▼                 ▼
+   [Rebuttal A1]     [Rebuttal A2]     [Rebuttal B1]     [Rebuttal B2]
+   (Accepted 🟢)     (Rejected 🔴)     (Accepted 🟢)     (Partial 🟡)
+         │                                   │
+         ▼                                   ▼
+ [Precedent Link 1]                  [Precedent Link 2]
+ (Para 14 Anchor)                    (Para 22 Anchor)
+```
+
+
+
 @article{legal_argument_retriever_2026,
   title={Beyond the Hallucination: Building a 'Retrieval-Only' Future for Indian Legal Tech},
   author={SD-AI144},
